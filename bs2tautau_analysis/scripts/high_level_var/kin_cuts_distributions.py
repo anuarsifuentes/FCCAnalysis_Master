@@ -1,12 +1,13 @@
-import ROOT        
+import ROOT       
+import uproot
+import pyarrow
 import awkward as ak  #awkward arrays are arrays with variable length in comparison to NumPy  
 import numpy as np  #Fast math arrays for scientific computing  
 import pandas as pd  #dataframes for easy stats, filtering and analysis 
 import matplotlib.pyplot as plt   #Plotting tool
-#import mplhep as hep #matplotlib styles for HEP plots
 import os  #work with files, paths and environments
-#hep.style.use("CMS") #Use CMS-like plot style
 from concurrent.futures import ProcessPoolExecutor, as_completed
+
 
 
 
@@ -131,34 +132,69 @@ for label in unique_labels:
 
 #Define some CUTS. You can add some more in case it is needed
 cuts = {
-#"EVT_dPV2DVave": (">2", lambda x: x>2.0), #lambda takes x as an array and returns a boolean array (the mask)
-#"EVT_NVertex" : (">=5", lambda x: x>=5),
-#"EVT_NTau23Pi": (">= 2",lambda x: x>=2),
-"EVT_ThrustEmin_E": ("<40", lambda x: x<40),
+"EVT_NTau23Pi": (">= 2",lambda x: x>=2), #lambda takes x as an array and returns a boolean array (the mask)
+#"EVT_ThrustEmin_E": ("<43", lambda x: x<43),
+#"EVT_ThrustEmin_Eneutral": ("<16", lambda x: x<16),
 #"EVT_ThrustEmin_NDV": (">=2", lambda x: x>=2),
-#"EVT_ThrustEmin_Nneutral": ("<=10", lambda x: x<=10),
-"EVT_ThrustEmin_Eneutral": ("<=5", lambda x: x<=5)
+"EVT_ThrustEmax_E" : ("<48", lambda x: x<48),
+"EVT_ThrustEmin_Nneutral": ("<15", lambda x: x<15),
 }
 
 #Merge all cuts into a single one. We call then this a mask
+merged_before_cuts = merged.copy() # Copy merged so that it does not get deleted
 cut_mask = ak.ones_like(merged["label"], dtype=bool) # Start with all True
 for varname, (desc, condition) in cuts.items():
     cut_mask = cut_mask & condition(merged[varname])
-merged = {key: merged[key][cut_mask] for key in merged}
+
+
+
+filtered = {key: merged_before_cuts[key][cut_mask] for key in merged_before_cuts} 
+
+#Save "filtered" in folder
+filtered_path = "/work/asifuentes/FCCAnalyses/bs2tautau_analysis/filter_stage1_data"
+os.makedirs(filtered_path, exist_ok=True)
+
+cuts_names = "_".join(cuts.keys())
+file_cuts = f"filtered_{cuts_names}.parquet" 
+parquet_path = os.path.join(filtered_path, file_cuts)
+
+#Save as Parquet file
+array_dict = {}
+for key in filtered:
+    try:
+        array_dict[key] = ak.to_numpy(filtered[key])
+    except Exception:
+        array_dict[key] = ak.to_list(filtered[key])
+
+df_filtered = pd.DataFrame(array_dict)
+df_filtered.to_parquet(parquet_path, index=False)
+
+print (f"\n filtered dataset saved to {parquet_path}")
+
+"""
+How to open this Parquet file and convert to a Pandas DataFrame:
+
+import pandas as pd
+
+df = pd.read_parquet("filtered_<cut_names>.parquet")
+print(df.head())
+"""
+
+
 
 print("\nAfter cuts:")
-print(f"Total events: {len(merged['label'])}")
+print(f"Total events: {len(filtered['label'])}")
 #We have to check how much statistics we have in the plots (in other words how many events per process are we considering)
 
 for label in unique_labels:
-    mask = merged["label"] == label
+    mask = filtered["label"] == label
     count_after = ak.sum(mask)
     count_before = pre_cut_counts[label]
     percent = 100 * count_after / count_before if count_before > 0 else 0 
     print(f"Process: {label}; total number of events: {count_after}({percent:.2f}%)")
 
 
-def write_cut_reports(cuts, pre_cut_counts, merged, report_dir, base_name ="cut_report"):
+def write_cut_reports(cuts, pre_cut_counts, filtered, report_dir, base_name ="cut_report"):
     """
     This block/definition writes a report as a txt file. It gives information about the applied cuts,
     event counts (before and after) and efficiencies
@@ -182,7 +218,7 @@ def write_cut_reports(cuts, pre_cut_counts, merged, report_dir, base_name ="cut_
     unique_labels = list(pre_cut_counts.keys())
     post_cut_counts = {}
     for label in unique_labels:
-        mask = merged["label"] == label
+        mask = filtered["label"] == label
         post_cut_counts[label] = ak.sum(mask)
 
     #Write the txt file
@@ -208,17 +244,21 @@ def write_cut_reports(cuts, pre_cut_counts, merged, report_dir, base_name ="cut_
 
 
 report_dir = "/work/asifuentes/FCCAnalyses/bs2tautau_analysis/reports"
-post_cut_counts = write_cut_reports(cuts, pre_cut_counts, merged, report_dir)
+post_cut_counts = write_cut_reports(cuts, pre_cut_counts,filtered, report_dir)
     
 # Now a variable to do some PLOTTING
-def plot_variable(varname, data, log_y, suffix):
+def plot_variable(varname, filtered, log_y, suffix):
     """
     Plot one variable comparing signal and background from merged data dictionary
     """
-    unique_labels = np.unique(data["label"].to_list())
-    #Path to save the figure. CHANGE WHEN DOING ANOTHER CUT
-    path_save = "/work/asifuentes/FCCAnalyses/bs2tautau_analysis/distributions/cut_ThrustEminEneutral_ThrustEminE"
-    os.makedirs(path_save, exist_ok=True)
+    unique_labels = np.unique(filtered["label"].to_list())
+
+    #Path to save the figure.
+    cuts_names = "_".join(cuts.keys())
+
+    path_save = "/work/asifuentes/FCCAnalyses/bs2tautau_analysis/distributions"
+    plot_path = os.path.join(path_save, f"cut_{cuts_names}")
+    os.makedirs(plot_path, exist_ok=True)
     # Define which processes should be filled
     fill_processes = [
         r"$B_s \to \tau^+ \tau^- (inclusive)$",
@@ -231,8 +271,8 @@ def plot_variable(varname, data, log_y, suffix):
         folder_key = next(key for key, (label, _) in folder_dict.items() if label == process_label) 
         color = folder_dict[folder_key][1]   #Get the colors of every process
 
-        mask = data["label"] == process_label
-        x_data = np.array(data[varname][mask])
+        mask = filtered["label"] == process_label
+        x_data = np.array(filtered[varname][mask])
         n_events = len(x_data)
 
         if n_events == 0:
@@ -251,9 +291,9 @@ def plot_variable(varname, data, log_y, suffix):
 
 
         if process_label in fill_processes:
-            plt.hist(data[varname][mask], bins=branchList[varname][1], range=(branchList[varname][2], branchList[varname][3]), histtype="stepfilled", color=color, alpha=0.5, label=process_label, density=False, weights=weights)
+            plt.hist(filtered[varname][mask], bins=branchList[varname][1], range=(branchList[varname][2], branchList[varname][3]), histtype="stepfilled", color=color, alpha=0.5, label=process_label, density=False, weights=weights)
         else:
-            plt.hist(data[varname][mask], bins=branchList[varname][1], range=(branchList[varname][2], branchList[varname][3]) , color=color , histtype="step", label=process_label, density=False, weights=weights)
+            plt.hist(filtered[varname][mask], bins=branchList[varname][1], range=(branchList[varname][2], branchList[varname][3]) , color=color , histtype="step", label=process_label, density=False, weights=weights)
 
     #log_y= branchList[varname][5] if len(branchList[varname]) > 5 and isinstance(branchList[varname][5], bool) else False
     if log_y:
@@ -269,8 +309,8 @@ def plot_variable(varname, data, log_y, suffix):
     plt.title(f"Signal vs Background at √s = 91 GeV\n{branchList[varname][0]}")
     plt.legend()
     plt.tight_layout()
-    plt.savefig(f"{path_save}/{varname}{suffix}.png")
-    plt.savefig(f"{path_save}/{varname}{suffix}.pdf")
+    plt.savefig(f"{plot_path}/{varname}{suffix}.png")
+    plt.savefig(f"{plot_path}/{varname}{suffix}.pdf")
     plt.close()
 
 # Plot some variables
@@ -281,8 +321,8 @@ for varname, props in branchList.items():
         lin_y = props[6] if len(props) > 6 else True 
 
         if lin_y:
-            plot_variable(varname, merged, log_y=False, suffix="")
+            plot_variable(varname, filtered, log_y=False, suffix="")
         if log_y:
-            plot_variable(varname, merged, log_y=True, suffix="_log")   
+            plot_variable(varname, filtered , log_y=True, suffix="_log")   
     except Exception as e:
         print(f"Error plotting {varname}: {e}")
