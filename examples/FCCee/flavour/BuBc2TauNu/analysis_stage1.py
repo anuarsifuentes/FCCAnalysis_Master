@@ -13,13 +13,16 @@ outputDirEos_training   = "/eos/experiment/fcc/ee/analyses/case-studies/flavour/
 
 #analysis_stage1
 processList_analysis = {
+    'p8_ee_Zbb_ecm91_EvtGen_Bc2TauNuTAUHADNU':{'chunks':1, 'fraction': 0.0001},
+
     'p8_ee_Zbb_ecm91':{'chunks':50},
     'p8_ee_Zcc_ecm91':{'chunks':50},
     'p8_ee_Zuds_ecm91':{'chunks':50},
 
-    'p8_ee_Zbb_ecm91_EvtGen_Bc2TauNuTAUHADNU':{'chunks':50},
+    'p8_ee_Zbb_ecm91_EvtGen_Bc2TauNuTAUHADNU':{'chunks':50}, 
     'p8_ee_Zbb_ecm91_EvtGen_Bu2TauNuTAUHADNU':{'chunks':50},
 
+    """
     'p8_ee_Zbb_ecm91_EvtGen_Bd2D3Pi':{'chunks':50},
     'p8_ee_Zbb_ecm91_EvtGen_Bd2DDs':{'chunks':50},
     'p8_ee_Zbb_ecm91_EvtGen_Bd2DTauNu':{'chunks':50},
@@ -50,8 +53,9 @@ processList_analysis = {
     'p8_ee_Zbb_ecm91_EvtGen_Lb2Lcst3Pi':{'chunks':50},
     'p8_ee_Zbb_ecm91_EvtGen_Lb2LcstDs':{'chunks':50},
     'p8_ee_Zbb_ecm91_EvtGen_Lb2LcstDsst':{'chunks':50},
-    'p8_ee_Zbb_ecm91_EvtGen_Lb2LcstTauNu':{'chunks':50}
-    }
+    'p8_ee_Zbb_ecm91_EvtGen_Lb2LcstTauNu':{'chunks':50} 
+    """
+    }  
 prodTag_analysis     = "FCCee/spring2021/IDEA/"
 outputDirEos_analysis   = "/eos/experiment/fcc/ee/analyses/case-studies/flavour/BuBc2TauNu/flatNtuples/spring2021/prod_04/analysis_stage1/"
 
@@ -67,9 +71,9 @@ if runTraining:
     prodTag      = prodTag_training
     MVAFilter    = "EVT_MVA1>-1.0"
 
-outputDir   = ""
+outputDir   = "output/BuBc"
 nCPUS       = 8
-runBatch    = True
+runBatch    = False
 batchQueue  = "workday"
 compGroup   = "group_u_FCC.local_gen"
 
